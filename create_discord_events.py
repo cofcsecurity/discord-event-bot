@@ -1,4 +1,6 @@
+import base64
 import csv
+import mimetypes
 import os
 import sys
 import time
@@ -9,6 +11,8 @@ import requests
 
 GUILD_ID = "745067181422673941"
 CSV_PATH = "events.csv"
+IMAGE_TYPES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
+MAX_IMAGE_BYTES = 10 * 1024 * 1024
 TZ = ZoneInfo("America/New_York")
 DEFAULT_START = "17:30"
 DEFAULT_END = "19:30"
@@ -32,16 +36,39 @@ def load_events(path):
         return list(csv.DictReader(f))
 
 
+def encode_image(path):
+    if not path:
+        return None
+    if not os.path.isfile(path):
+        print(f"  [WARN] image not found: {path}, skipping cover photo")
+        return None
+
+    size = os.path.getsize(path)
+    if size > MAX_IMAGE_BYTES:
+        print(f"  [WARN] image too large ({size / 1_000_000:.1f} MB): {path}, skipping cover photo")
+        return None
+
+    mime, _ = mimetypes.guess_type(path)
+    if mime not in IMAGE_TYPES:
+        print(f"  [WARN] unsupported image type for {path}, skipping cover photo")
+        return None
+
+    with open(path, "rb") as f:
+        data = base64.b64encode(f.read()).decode("ascii")
+    return f"data:{mime};base64,{data}"
+
+
 def build_payload(row):
     date = row["date"].strip()
     start_time = row.get("start_time", "").strip() or DEFAULT_START
     end_time = row.get("end_time", "").strip() or DEFAULT_END
     location = row.get("location", "").strip() or DEFAULT_LOCATION
+    image = encode_image((row.get("image") or "").strip())
 
     start = datetime.strptime(f"{date} {start_time}", "%Y-%m-%d %H:%M").replace(tzinfo=TZ)
     end = datetime.strptime(f"{date} {end_time}", "%Y-%m-%d %H:%M").replace(tzinfo=TZ)
 
-    return {
+    payload = {
         "name": row["title"].strip(),
         "description": f"{row['description'].strip()}\n\n{FOOTER}",
         "scheduled_start_time": start.isoformat(),
@@ -50,6 +77,9 @@ def build_payload(row):
         "entity_type": 3,
         "entity_metadata": {"location": location},
     }
+    if image:
+        payload["image"] = image
+    return payload
 
 
 def existing_event_names(url):

@@ -87,6 +87,7 @@ Everything you'd normally change lives in `events.csv` — no need to touch the 
 | `start_time` | No | 24-hour format `HH:MM` (e.g. `17:30`). Leave blank to use the default (5:30 PM). |
 | `end_time` | No | Same format. Leave blank to use the default (7:30 PM). |
 | `location` | No | Physical room or text location. Leave blank to use the default (Simons 281). |
+| `image` | No | Path to a cover photo for the event (relative to where you run the script, or absolute). Leave blank for no cover photo. Supports PNG, JPEG, GIF, and WebP, up to 10 MB. Discord displays these at a 16:9 crop, so a landscape image (e.g. 1920x1080) looks best. |
 
 ### Adding a new meeting
 
@@ -95,8 +96,18 @@ Add a new row to `events.csv` with at least `date`, `title`, and `description` f
 Example — a one-off meeting in a different room:
 
 ```csv
-2026-08-30,Special Guest Talk,"Guest speaker from industry on career paths in security.",18:00,19:30,Simons 105
+2026-08-30,Special Guest Talk,"Guest speaker from industry on career paths in security.",18:00,19:30,Simons 105,
 ```
+
+### Adding a cover photo to a meeting
+
+Fill in the `image` column with a path to an image file. It's read from disk and uploaded when the event is created — the file itself doesn't need to be committed anywhere Discord can see it, just present on your machine when you run the script.
+
+```csv
+2026-08-30,Special Guest Talk,"Guest speaker from industry on career paths in security.",18:00,19:30,Simons 105,images/guest-talk.jpg
+```
+
+If the path doesn't exist, the type is unsupported, or the file is too large, the script prints a warning and creates the event without a cover photo instead of failing.
 
 ### Removing a meeting
 

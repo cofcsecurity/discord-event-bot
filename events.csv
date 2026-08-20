@@ -1,4 +1,4 @@
-date,title,description,start_time,end_time,location
+date,title,description,start_time,end_time,location,image
 2026-08-25,Introduction to the Club & CTF Basics,"Overview of the club and basic team roles, followed by a simple introductory CTF game covering foundational computer science and light security concepts.",,,
 2026-08-27,Introduction to Cyber Competitions,"A look at how a typical team defense competition works using examples from past events. Covers team structure and basic roles.",,,
 2026-09-01,Virtualization & Introduction to the Command Line,"Why we use the command line, basic Linux navigation, and text editing. Setting up local VMs and using online practice labs like OverTheWire.",,,
