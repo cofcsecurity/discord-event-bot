@@ -82,15 +82,15 @@ def build_payload(row):
     return payload
 
 
-def existing_event_names(url):
+def existing_events_by_name(url):
     resp = requests.get(url, headers=HEADERS)
     resp.raise_for_status()
-    return {e["name"] for e in resp.json()}
+    return {e["name"]: e for e in resp.json()}
 
 
-def post_with_retry(url, payload, max_retries=5):
+def request_with_retry(method, url, payload, max_retries=5):
     for attempt in range(max_retries):
-        resp = requests.post(url, headers=HEADERS, json=payload)
+        resp = requests.request(method, url, headers=HEADERS, json=payload)
         if resp.status_code != 429:
             return resp
         wait = resp.json().get("retry_after", 2) + 0.5
@@ -102,26 +102,42 @@ def post_with_retry(url, payload, max_retries=5):
 def main():
     events = load_events(CSV_PATH)
     url = f"{API_BASE}/guilds/{GUILD_ID}/scheduled-events"
-    already = existing_event_names(url)
-    created, skipped, failed = 0, 0, []
+    already = existing_events_by_name(url)
+    created, skipped, backfilled, failed = 0, 0, 0, []
 
     for row in events:
         payload = build_payload(row)
-        if payload["name"] in already:
-            skipped += 1
-            print(f"[SKIP] {payload['name']} (already exists)")
+        name = payload["name"]
+
+        if name in already:
+            existing = already[name]
+            if payload.get("image") and not existing.get("image"):
+                resp = request_with_retry("PATCH", f"{url}/{existing['id']}", {"image": payload["image"]})
+                if resp.ok:
+                    backfilled += 1
+                    print(f"[IMG] {name} (cover photo added)")
+                else:
+                    failed.append((name, resp.status_code, resp.text))
+                    print(f"[IMG-FAIL] {name} -> {resp.status_code}: {resp.text}")
+                time.sleep(1.5)
+            else:
+                skipped += 1
+                print(f"[SKIP] {name} (already exists)")
             continue
 
-        resp = post_with_retry(url, payload)
+        resp = request_with_retry("POST", url, payload)
         if resp.ok:
             created += 1
-            print(f"[OK] {payload['scheduled_start_time'][:10]}  {payload['name']}")
+            print(f"[OK] {payload['scheduled_start_time'][:10]}  {name}")
         else:
-            failed.append((payload["name"], resp.status_code, resp.text))
-            print(f"[FAIL] {payload['name']} -> {resp.status_code}: {resp.text}")
+            failed.append((name, resp.status_code, resp.text))
+            print(f"[FAIL] {name} -> {resp.status_code}: {resp.text}")
         time.sleep(1.5)
 
-    print(f"\n{created} created, {skipped} skipped (already existed), {len(failed)} failed.")
+    print(
+        f"\n{created} created, {backfilled} cover photos added, "
+        f"{skipped} skipped (already existed), {len(failed)} failed."
+    )
     for name, code, text in failed:
         print(f"  {name}: {code} {text}")
 

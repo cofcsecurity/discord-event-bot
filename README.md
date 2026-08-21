@@ -67,8 +67,9 @@ Expected output looks like:
 ```
 [OK] 2026-08-25  Introduction to the Club & CTF Basics
 [SKIP] Introduction to Cyber Competitions (already exists)
+[IMG] Basic Host Hardening (cover photo added)
 ...
-22 created, 6 skipped (already existed), 0 failed.
+22 created, 1 cover photos added, 5 skipped (already existed), 0 failed.
 ```
 
 Check the result in Discord: open the server, click the server name at the top, and select **Events**.
@@ -108,6 +109,8 @@ Fill in the `image` column with a path to an image file. It's read from disk and
 ```
 
 If the path doesn't exist, the type is unsupported, or the file is too large, the script prints a warning and creates the event without a cover photo instead of failing.
+
+If an event already exists in Discord (e.g. it was created before you added an `image` for it), the script won't recreate it, but it **will** backfill the cover photo — as long as the event doesn't already have one set. It never overwrites a cover photo that's already there, so anything set manually in Discord is left alone. This shows up in the output as `[IMG] <name> (cover photo added)`.
 
 ### Removing a meeting
 
