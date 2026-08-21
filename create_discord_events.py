@@ -1,5 +1,7 @@
+import argparse
 import base64
 import csv
+import json
 import mimetypes
 import os
 import sys
@@ -11,6 +13,7 @@ import requests
 
 GUILD_ID = "745067181422673941"
 CSV_PATH = "events.csv"
+LOCK_PATH = "locked_events.json"
 IMAGE_TYPES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
 MAX_IMAGE_BYTES = 10 * 1024 * 1024
 TZ = ZoneInfo("America/New_York")
@@ -24,9 +27,6 @@ FOOTER = (
 )
 
 BOT_TOKEN = os.environ.get("DISCORD_BOT_TOKEN")
-if not BOT_TOKEN:
-    sys.exit('Set DISCORD_BOT_TOKEN, e.g. export DISCORD_BOT_TOKEN="..."')
-
 API_BASE = "https://discord.com/api/v10"
 HEADERS = {"Authorization": f"Bot {BOT_TOKEN}", "Content-Type": "application/json"}
 
@@ -99,9 +99,21 @@ def request_with_retry(method, url, payload, max_retries=5):
     return resp
 
 
-def main():
+def load_locked():
+    if not os.path.isfile(LOCK_PATH):
+        return set()
+    with open(LOCK_PATH, encoding="utf-8") as f:
+        return set(json.load(f))
+
+
+def save_locked(locked):
+    with open(LOCK_PATH, "w", encoding="utf-8") as f:
+        json.dump(sorted(locked), f, indent=2)
+        f.write("\n")
+
+
+def cmd_create(url, locked):
     events = load_events(CSV_PATH)
-    url = f"{API_BASE}/guilds/{GUILD_ID}/scheduled-events"
     already = existing_events_by_name(url)
     created, skipped, backfilled, failed = 0, 0, 0, []
 
@@ -110,6 +122,11 @@ def main():
         name = payload["name"]
 
         if name in already:
+            if name in locked:
+                skipped += 1
+                print(f"[LOCKED] {name} (skipped)")
+                continue
+
             existing = already[name]
             if payload.get("image") and not existing.get("image"):
                 resp = request_with_retry("PATCH", f"{url}/{existing['id']}", {"image": payload["image"]})
@@ -136,10 +153,188 @@ def main():
 
     print(
         f"\n{created} created, {backfilled} cover photos added, "
-        f"{skipped} skipped (already existed), {len(failed)} failed."
+        f"{skipped} skipped (already existed or locked), {len(failed)} failed."
     )
     for name, code, text in failed:
         print(f"  {name}: {code} {text}")
+
+
+def cmd_edit(url, locked):
+    events = load_events(CSV_PATH)
+    existing = existing_events_by_name(url)
+    updated, skipped_locked, not_found, failed = 0, 0, 0, []
+
+    for row in events:
+        payload = build_payload(row)
+        name = payload["name"]
+
+        if name not in existing:
+            not_found += 1
+            print(f"[SKIP] {name} (not created yet, run with no arguments to create it)")
+            continue
+
+        if name in locked:
+            skipped_locked += 1
+            print(f"[LOCKED] {name} (skipped)")
+            continue
+
+        event_id = existing[name]["id"]
+        resp = request_with_retry("PATCH", f"{url}/{event_id}", payload)
+        if resp.ok:
+            updated += 1
+            print(f"[EDIT] {name}")
+        else:
+            failed.append((name, resp.status_code, resp.text))
+            print(f"[EDIT-FAIL] {name} -> {resp.status_code}: {resp.text}")
+        time.sleep(1.5)
+
+    print(
+        f"\n{updated} updated, {skipped_locked} skipped (locked), "
+        f"{not_found} not found, {len(failed)} failed."
+    )
+    for name, code, text in failed:
+        print(f"  {name}: {code} {text}")
+
+
+def cmd_delete(url, locked, args):
+    existing = existing_events_by_name(url)
+    name = args.name
+
+    if name not in existing:
+        sys.exit(f"No event named '{name}' found.")
+
+    if name in locked:
+        sys.exit(f"'{name}' is locked. Run `unlock \"{name}\"` first if you really want to delete it.")
+
+    if not args.yes:
+        answer = input(f"Delete event '{name}' from Discord? This cannot be undone. [y/N] ").strip().lower()
+        if answer != "y":
+            print("Aborted.")
+            return
+
+    event_id = existing[name]["id"]
+    resp = request_with_retry("DELETE", f"{url}/{event_id}", None)
+    if resp.ok:
+        print(f"[DEL] {name}")
+    else:
+        print(f"[DEL-FAIL] {name} -> {resp.status_code}: {resp.text}")
+
+
+def cmd_wipe(url, locked, args):
+    existing = existing_events_by_name(url)
+    targets = {name: e for name, e in existing.items() if name not in locked}
+    kept = sorted(name for name in existing if name in locked)
+
+    if not targets:
+        print("Nothing to wipe (no events exist, or all existing events are locked).")
+        return
+
+    print(f"This will permanently delete {len(targets)} event(s):")
+    for name in sorted(targets):
+        print(f"  - {name}")
+    if kept:
+        print(f"\n{len(kept)} locked event(s) will be kept:")
+        for name in kept:
+            print(f"  - {name}")
+
+    if not args.yes:
+        confirm = input(f"\nType WIPE to permanently delete these {len(targets)} event(s): ")
+        if confirm != "WIPE":
+            print("Aborted.")
+            return
+
+    deleted, failed = 0, []
+    for name, event in targets.items():
+        resp = request_with_retry("DELETE", f"{url}/{event['id']}", None)
+        if resp.ok:
+            deleted += 1
+            print(f"[DEL] {name}")
+        else:
+            failed.append((name, resp.status_code, resp.text))
+            print(f"[DEL-FAIL] {name} -> {resp.status_code}: {resp.text}")
+        time.sleep(1.5)
+
+    print(f"\n{deleted} deleted, {len(kept)} locked (kept), {len(failed)} failed.")
+    for name, code, text in failed:
+        print(f"  {name}: {code} {text}")
+
+
+def cmd_lock(args, locked):
+    if args.name in locked:
+        print(f"'{args.name}' is already locked.")
+        return
+    locked.add(args.name)
+    save_locked(locked)
+    print(f"[LOCK] {args.name}")
+
+
+def cmd_unlock(args, locked):
+    if args.name not in locked:
+        print(f"'{args.name}' is not locked.")
+        return
+    locked.discard(args.name)
+    save_locked(locked)
+    print(f"[UNLOCK] {args.name}")
+
+
+def cmd_show_locked(locked):
+    if not locked:
+        print("No events are locked.")
+        return
+    print(f"{len(locked)} locked event(s):")
+    for name in sorted(locked):
+        print(f"  - {name}")
+
+
+def build_parser():
+    parser = argparse.ArgumentParser(description="Manage Discord scheduled events from events.csv")
+    sub = parser.add_subparsers(dest="command")
+
+    sub.add_parser("create", help="Create events from events.csv that don't exist yet, and backfill missing cover photos (default)")
+    sub.add_parser("edit", help="Update existing events to match events.csv (skips locked events)")
+
+    p_delete = sub.add_parser("delete", help="Delete a single event by exact name")
+    p_delete.add_argument("name")
+    p_delete.add_argument("--yes", action="store_true", help="Skip the confirmation prompt")
+
+    p_wipe = sub.add_parser("wipe", help="Delete ALL events except locked ones")
+    p_wipe.add_argument("--yes", action="store_true", help="Skip the typed confirmation prompt")
+
+    p_lock = sub.add_parser("lock", help="Lock an event by name (immune to edit/delete/wipe)")
+    p_lock.add_argument("name")
+
+    p_unlock = sub.add_parser("unlock", help="Unlock a previously locked event")
+    p_unlock.add_argument("name")
+
+    sub.add_parser("locked", help="List currently locked events")
+
+    return parser
+
+
+def main():
+    args = build_parser().parse_args()
+    command = args.command or "create"
+
+    if not BOT_TOKEN:
+        sys.exit('Set DISCORD_BOT_TOKEN, e.g. export DISCORD_BOT_TOKEN="..."')
+
+    url = f"{API_BASE}/guilds/{GUILD_ID}/scheduled-events"
+    locked = load_locked()
+
+    if command == "create":
+        cmd_create(url, locked)
+    elif command == "edit":
+        cmd_edit(url, locked)
+    elif command == "delete":
+        cmd_delete(url, locked, args)
+    elif command == "wipe":
+        cmd_wipe(url, locked, args)
+    elif command == "lock":
+        cmd_lock(args, locked)
+    elif command == "unlock":
+        cmd_unlock(args, locked)
+    elif command == "locked":
+        cmd_show_locked(locked)
 
 
 if __name__ == "__main__":
