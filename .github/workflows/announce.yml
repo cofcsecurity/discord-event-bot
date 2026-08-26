@@ -1,0 +1,22 @@
+name: Announce Today's Meeting
+
+on:
+  schedule:
+    # 13:00 UTC = 9:00 AM EDT / 8:00 AM EST, Tuesdays and Thursdays.
+    # Adjust the hour here to change how far ahead of the 5:30 PM meeting this posts.
+    - cron: '0 13 * * 2,4'
+  workflow_dispatch:
+
+jobs:
+  announce:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+      - run: python3 create_discord_events.py announce
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          ANNOUNCE_CHANNEL_ID: ${{ secrets.ANNOUNCE_CHANNEL_ID }}

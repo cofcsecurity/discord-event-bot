@@ -1,0 +1,31 @@
+# Cover photos aren't part of schedule.yaml (that file is owned by the website repo).
+# Map meeting date -> image path (relative to this repo, or absolute) here instead.
+# Leave a date out entirely for no cover photo.
+"2026-08-25": covers/01-intro-ctf-basics.png
+"2026-08-27": covers/02-intro-cyber-competitions.png
+"2026-09-01": covers/03-virtualization-cli.png
+"2026-09-03": covers/04-file-systems.png
+"2026-09-08": covers/05-remote-access-ssh-rdp.png
+"2026-09-10": covers/06-basic-networking.png
+"2026-09-15": covers/07-os-permissions.png
+"2026-09-17": covers/08-basic-host-hardening.png
+"2026-09-22": covers/09-system-services-guest-ryan-hays.png
+"2026-09-24": covers/10-finding-unwanted-processes.png
+"2026-09-29": covers/11-network-monitoring-traffic.png
+"2026-10-01": covers/12-analyzing-traffic-incidents.png
+"2026-10-06": covers/13-dns-basics.png
+"2026-10-08": covers/14-dns-auditing.png
+"2026-10-15": covers/15-mid-semester-practice-sim.png
+"2026-10-20": covers/16-intro-active-directory.png
+"2026-10-22": covers/17-ad-policy-controls.png
+"2026-10-27": covers/18-web-db-server-setup.png
+"2026-10-29": covers/19-app-security-log-review.png
+"2026-11-03": covers/20-intro-log-collection.png
+"2026-11-05": covers/21-centralized-monitoring.png
+"2026-11-10": covers/22-basic-automation-scripting.png
+"2026-11-12": covers/23-scripts-config-checks.png
+"2026-11-17": covers/24-backups-recovery-planning.png
+"2026-11-19": covers/25-system-recovery-practice.png
+"2026-11-24": covers/26-competition-workflow.png
+"2026-12-01": covers/27-open-lab-project-day.png
+"2026-12-03": covers/28-end-of-term-practice-run.png

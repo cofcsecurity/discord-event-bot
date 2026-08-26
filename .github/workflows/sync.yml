@@ -1,0 +1,22 @@
+name: Sync Discord Events
+
+on:
+  repository_dispatch:
+    types: [schedule-updated]
+  schedule:
+    # Safety net in case a dispatch from the website repo is missed.
+    - cron: '0 13 * * *'  # 13:00 UTC = 9:00 AM EDT / 8:00 AM EST
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+      - run: python3 create_discord_events.py sync
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}

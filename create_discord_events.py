@@ -1,6 +1,5 @@
 import argparse
 import base64
-import csv
 import json
 import mimetypes
 import os
@@ -10,16 +9,22 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import requests
+import yaml
 
 GUILD_ID = "745067181422673941"
-CSV_PATH = "events.csv"
+SCHEDULE_URL = os.environ.get(
+    "SCHEDULE_URL",
+    "https://raw.githubusercontent.com/cofcsecurity/cofcsecurity.github.io/master/data/schedule.yaml",
+)
+SCHEDULE_PATH = os.environ.get("SCHEDULE_PATH")  # local file override, mainly for testing
+IMAGES_PATH = "images.yaml"
 LOCK_PATH = "locked_events.json"
 IMAGE_TYPES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
 MAX_IMAGE_BYTES = 10 * 1024 * 1024
 TZ = ZoneInfo("America/New_York")
 DEFAULT_START = "17:30"
 DEFAULT_END = "19:30"
-DEFAULT_LOCATION = "Simons 281"
+DEFAULT_LOCATION = "Simons Center for the Arts, Room 281"
 VOICE_CHANNEL_URL = "https://discord.com/channels/745067181422673941/745067181909344289"
 FOOTER = (
     f"🎙️ **Join by voice chat:** {VOICE_CHANNEL_URL}\n"
@@ -27,13 +32,52 @@ FOOTER = (
 )
 
 BOT_TOKEN = os.environ.get("DISCORD_BOT_TOKEN")
+ANNOUNCE_CHANNEL_ID = os.environ.get("ANNOUNCE_CHANNEL_ID")
+SITE_BASE_URL = "https://cofcsecurity.github.io"
 API_BASE = "https://discord.com/api/v10"
 HEADERS = {"Authorization": f"Bot {BOT_TOKEN}", "Content-Type": "application/json"}
 
 
-def load_events(path):
-    with open(path, newline="", encoding="utf-8") as f:
-        return list(csv.DictReader(f))
+def load_schedule():
+    if SCHEDULE_PATH:
+        with open(SCHEDULE_PATH, encoding="utf-8") as f:
+            text = f.read()
+    else:
+        resp = requests.get(SCHEDULE_URL)
+        resp.raise_for_status()
+        text = resp.text
+    return yaml.safe_load(text)
+
+
+def load_images():
+    if not os.path.isfile(IMAGES_PATH):
+        return {}
+    with open(IMAGES_PATH, encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {}
+    return {str(k): v for k, v in data.items()}
+
+
+def load_events():
+    schedule = load_schedule()
+    default_location = schedule.get("location") or DEFAULT_LOCATION
+    images = load_images()
+
+    rows = []
+    for meeting in schedule.get("meetings", []):
+        if meeting.get("skipped") or not meeting.get("topic"):
+            continue
+        meeting_date = str(meeting["date"])
+        rows.append({
+            "date": meeting_date,
+            "title": meeting["topic"].strip(),
+            "description": (meeting.get("notes") or "").strip(),
+            "start_time": meeting.get("start") or DEFAULT_START,
+            "end_time": meeting.get("end") or DEFAULT_END,
+            "location": meeting.get("location") or default_location,
+            "image": images.get(meeting_date, ""),
+            "slides": (meeting.get("slides") or "").strip(),
+        })
+    return rows
 
 
 def encode_image(path):
@@ -82,6 +126,70 @@ def build_payload(row):
     return payload
 
 
+def build_announcement(row):
+    date = datetime.strptime(row["date"], "%Y-%m-%d").date()
+    start_time = row.get("start_time", "").strip() or DEFAULT_START
+    end_time = row.get("end_time", "").strip() or DEFAULT_END
+    location = row.get("location", "").strip() or DEFAULT_LOCATION
+
+    lines = [
+        "@everyone",
+        f"**Meeting today: {row['title'].strip()}**",
+        f"🗓️ {date.strftime('%A, %B %-d')} · {start_time}–{end_time}",
+        f"📍 {location}",
+        "",
+        row.get("description", "").strip(),
+        "",
+        FOOTER,
+    ]
+    slides = (row.get("slides") or "").strip()
+    if slides:
+        lines.append(f"📑 **Slides:** {SITE_BASE_URL}/{slides}")
+    return "\n".join(lines)
+
+
+def cmd_announce():
+    if not ANNOUNCE_CHANNEL_ID:
+        sys.exit('Set ANNOUNCE_CHANNEL_ID, e.g. export ANNOUNCE_CHANNEL_ID="..."')
+
+    today = datetime.now(TZ).strftime("%Y-%m-%d")
+    todays = [row for row in load_events() if row["date"] == today]
+
+    if not todays:
+        print(f"No meeting scheduled for {today}, nothing to announce.")
+        return
+
+    url = f"{API_BASE}/channels/{ANNOUNCE_CHANNEL_ID}/messages"
+    for row in todays:
+        content = build_announcement(row)
+        payload = {"content": content, "allowed_mentions": {"parse": ["everyone"]}}
+
+        image_path = (row.get("image") or "").strip()
+        image_bytes = image_name = image_mime = None
+        if image_path and os.path.isfile(image_path):
+            mime, _ = mimetypes.guess_type(image_path)
+            if os.path.getsize(image_path) <= MAX_IMAGE_BYTES and mime in IMAGE_TYPES:
+                with open(image_path, "rb") as f:
+                    image_bytes = f.read()
+                image_name, image_mime = os.path.basename(image_path), mime
+
+        if image_bytes:
+            files = {"files[0]": (image_name, image_bytes, image_mime)}
+            resp = requests.post(
+                url,
+                headers={"Authorization": HEADERS["Authorization"]},
+                data={"payload_json": json.dumps(payload)},
+                files=files,
+            )
+        else:
+            resp = requests.post(url, headers=HEADERS, json=payload)
+
+        if resp.ok:
+            print(f"[ANNOUNCE] {row['title']}")
+        else:
+            print(f"[ANNOUNCE-FAIL] {row['title']} -> {resp.status_code}: {resp.text}")
+
+
 def existing_events_by_name(url):
     resp = requests.get(url, headers=HEADERS)
     resp.raise_for_status()
@@ -113,7 +221,7 @@ def save_locked(locked):
 
 
 def cmd_create(url, locked):
-    events = load_events(CSV_PATH)
+    events = load_events()
     already = existing_events_by_name(url)
     created, skipped, backfilled, failed = 0, 0, 0, []
 
@@ -160,7 +268,7 @@ def cmd_create(url, locked):
 
 
 def cmd_edit(url, locked):
-    events = load_events(CSV_PATH)
+    events = load_events()
     existing = existing_events_by_name(url)
     updated, skipped_locked, not_found, failed = 0, 0, 0, []
 
@@ -259,6 +367,12 @@ def cmd_wipe(url, locked, args):
         print(f"  {name}: {code} {text}")
 
 
+def cmd_sync(url, locked):
+    """Create anything missing from schedule.yaml, then update existing events to match it. Used by CI."""
+    cmd_create(url, locked)
+    cmd_edit(url, locked)
+
+
 def cmd_lock(args, locked):
     if args.name in locked:
         print(f"'{args.name}' is already locked.")
@@ -287,11 +401,13 @@ def cmd_show_locked(locked):
 
 
 def build_parser():
-    parser = argparse.ArgumentParser(description="Manage Discord scheduled events from events.csv")
+    parser = argparse.ArgumentParser(description="Manage Discord scheduled events from schedule.yaml")
     sub = parser.add_subparsers(dest="command")
 
-    sub.add_parser("create", help="Create events from events.csv that don't exist yet, and backfill missing cover photos (default)")
-    sub.add_parser("edit", help="Update existing events to match events.csv (skips locked events)")
+    sub.add_parser("create", help="Create events from schedule.yaml that don't exist yet, and backfill missing cover photos (default)")
+    sub.add_parser("edit", help="Update existing events to match schedule.yaml (skips locked events)")
+    sub.add_parser("sync", help="create + edit in one pass: create what's missing, update the rest to match schedule.yaml (used by CI)")
+    sub.add_parser("announce", help="post an @everyone announcement to the announcements channel for today's meeting, if there is one (used by CI)")
 
     p_delete = sub.add_parser("delete", help="Delete a single event by exact name")
     p_delete.add_argument("name")
@@ -325,6 +441,10 @@ def main():
         cmd_create(url, locked)
     elif command == "edit":
         cmd_edit(url, locked)
+    elif command == "sync":
+        cmd_sync(url, locked)
+    elif command == "announce":
+        cmd_announce()
     elif command == "delete":
         cmd_delete(url, locked, args)
     elif command == "wipe":
