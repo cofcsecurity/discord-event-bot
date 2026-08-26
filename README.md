@@ -128,7 +128,15 @@ python3 create_discord_events.py announce
 
 Looks up today's date (Eastern time) in `schedule.yaml`. If there's a meeting and it's not `skipped`, posts a `@everyone` message to the channel set as [`ANNOUNCE_CHANNEL_ID`](#5-set-the-announcements-channel-id-only-needed-for-announce) with the topic, day/date/time, location, the voice-chat link, the cover photo (from `images.yaml`, if set), and a link to that meeting's slides (from `schedule.yaml`'s `slides` field, if set). If there's no meeting today (including a `skipped` one, like a break week), it prints a note and exits without posting.
 
-This is what the [Tuesday/Thursday scheduled GitHub Action](#keeping-discord-in-sync-automatically) runs. Run it by hand to preview or test the message — it posts for real, there's no dry-run mode, so only run it against a test channel/token unless you mean to announce.
+This is what the [Tuesday/Thursday scheduled GitHub Action](#keeping-discord-in-sync-automatically) runs. It always posts for real (no dry-run mode) — use the flags below to test safely instead.
+
+**Testing it**: add `--no-ping` to post without pinging `@everyone` (the message says so instead, so it's obviously a test), and `--date YYYY-MM-DD` to preview a specific meeting instead of whatever's scheduled for today:
+
+```
+python3 create_discord_events.py announce --no-ping --date 2026-08-27
+```
+
+This still posts a real message to `ANNOUNCE_CHANNEL_ID`, just without the ping — good for checking formatting, the cover photo, and the slide link before trusting the unattended Tuesday/Thursday run.
 
 The cover photo (if set in `images.yaml`) is attached to the message as an image, shown below the text. A posted message looks like this:
 

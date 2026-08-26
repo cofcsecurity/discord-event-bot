@@ -126,14 +126,14 @@ def build_payload(row):
     return payload
 
 
-def build_announcement(row):
+def build_announcement(row, no_ping=False):
     date = datetime.strptime(row["date"], "%Y-%m-%d").date()
     start_time = row.get("start_time", "").strip() or DEFAULT_START
     end_time = row.get("end_time", "").strip() or DEFAULT_END
     location = row.get("location", "").strip() or DEFAULT_LOCATION
 
     lines = [
-        "@everyone",
+        "@everyone" if not no_ping else "*(test run, not pinging @everyone)*",
         f"**Meeting today: {row['title'].strip()}**",
         f"🗓️ {date.strftime('%A, %B %-d')} · {start_time}–{end_time}",
         f"📍 {location}",
@@ -148,21 +148,22 @@ def build_announcement(row):
     return "\n".join(lines)
 
 
-def cmd_announce():
+def cmd_announce(no_ping=False, date=None):
     if not ANNOUNCE_CHANNEL_ID:
         sys.exit('Set ANNOUNCE_CHANNEL_ID, e.g. export ANNOUNCE_CHANNEL_ID="..."')
 
-    today = datetime.now(TZ).strftime("%Y-%m-%d")
-    todays = [row for row in load_events() if row["date"] == today]
+    target_date = date or datetime.now(TZ).strftime("%Y-%m-%d")
+    todays = [row for row in load_events() if row["date"] == target_date]
 
     if not todays:
-        print(f"No meeting scheduled for {today}, nothing to announce.")
+        print(f"No meeting scheduled for {target_date}, nothing to announce.")
         return
 
     url = f"{API_BASE}/channels/{ANNOUNCE_CHANNEL_ID}/messages"
     for row in todays:
-        content = build_announcement(row)
-        payload = {"content": content, "allowed_mentions": {"parse": ["everyone"]}}
+        content = build_announcement(row, no_ping=no_ping)
+        allowed_mentions = {"parse": []} if no_ping else {"parse": ["everyone"]}
+        payload = {"content": content, "allowed_mentions": allowed_mentions}
 
         image_path = (row.get("image") or "").strip()
         image_bytes = image_name = image_mime = None
@@ -407,7 +408,9 @@ def build_parser():
     sub.add_parser("create", help="Create events from schedule.yaml that don't exist yet, and backfill missing cover photos (default)")
     sub.add_parser("edit", help="Update existing events to match schedule.yaml (skips locked events)")
     sub.add_parser("sync", help="create + edit in one pass: create what's missing, update the rest to match schedule.yaml (used by CI)")
-    sub.add_parser("announce", help="post an @everyone announcement to the announcements channel for today's meeting, if there is one (used by CI)")
+    p_announce = sub.add_parser("announce", help="post an @everyone announcement to the announcements channel for today's meeting, if there is one (used by CI)")
+    p_announce.add_argument("--no-ping", action="store_true", help="Post without pinging @everyone, for testing")
+    p_announce.add_argument("--date", help="Test against a specific YYYY-MM-DD instead of today")
 
     p_delete = sub.add_parser("delete", help="Delete a single event by exact name")
     p_delete.add_argument("name")
@@ -444,7 +447,7 @@ def main():
     elif command == "sync":
         cmd_sync(url, locked)
     elif command == "announce":
-        cmd_announce()
+        cmd_announce(no_ping=args.no_ping, date=args.date)
     elif command == "delete":
         cmd_delete(url, locked, args)
     elif command == "wipe":
