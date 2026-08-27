@@ -192,7 +192,7 @@ def cmd_announce(no_ping=False, date=None):
 
 
 def existing_events_by_name(url):
-    resp = requests.get(url, headers=HEADERS)
+    resp = request_with_retry("GET", url, None)
     resp.raise_for_status()
     return {e["name"]: e for e in resp.json()}
 
