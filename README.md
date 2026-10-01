@@ -197,7 +197,7 @@ The meeting schedule itself lives in [`data/schedule.yaml`](https://github.com/c
 | `start` | No | 24-hour `HH:MM`. Leave out to use the default (5:30 PM). |
 | `end` | No | Same format. Leave out to use the default (7:30 PM). |
 | `location` | No | Overrides the schedule-wide default location (`location:` at the top of the file) for just this meeting. |
-| `slides` | No | Path to that meeting's slides, relative to the website's `static/` folder (e.g. `slides/03-virtualization.pptx`). Shown as a "Slides" link on the site, and included in the [`announce`](#announce) message. Leave out if there are no slides for that meeting. |
+| `slides` | No | Path to that meeting's slides, relative to the website's `static/` folder (e.g. `slides/03-virtualization.pptx`), or a list of `label`/`file` entries for multiple decks. Shown as a "Slides" link on the site, and included in the [`announce`](#announce) message. Leave out if there are no slides for that meeting. |
 | `skipped` | No | Set `true` for a no-meeting week (e.g. a break). This bot ignores those entries entirely — no Discord event is created and no announcement is posted for them. |
 
 ### Adding, removing, or changing a meeting

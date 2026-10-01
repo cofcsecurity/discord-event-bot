@@ -57,6 +57,24 @@ def load_images():
     return {str(k): v for k, v in data.items()}
 
 
+def normalize_slides(value):
+    """Accept a single path string or a list of paths / {label, file} entries."""
+    if not value:
+        return []
+    if isinstance(value, str):
+        value = [value]
+    out = []
+    for item in value:
+        if isinstance(item, dict):
+            path = (item.get("file") or "").strip()
+            label = (item.get("label") or "").strip()
+        else:
+            path, label = str(item).strip(), ""
+        if path:
+            out.append({"label": label, "file": path})
+    return out
+
+
 def load_events():
     schedule = load_schedule()
     default_location = schedule.get("location") or DEFAULT_LOCATION
@@ -75,7 +93,7 @@ def load_events():
             "end_time": meeting.get("end") or DEFAULT_END,
             "location": meeting.get("location") or default_location,
             "image": images.get(meeting_date, ""),
-            "slides": (meeting.get("slides") or "").strip(),
+            "slides": normalize_slides(meeting.get("slides")),
         })
     return rows
 
@@ -142,9 +160,13 @@ def build_announcement(row, no_ping=False):
         "",
         FOOTER,
     ]
-    slides = (row.get("slides") or "").strip()
-    if slides:
-        lines.append(f"📑 **Slides:** {SITE_BASE_URL}/{slides}")
+    slides = row.get("slides") or []
+    if len(slides) == 1:
+        lines.append(f"📑 **Slides:** {SITE_BASE_URL}/{slides[0]['file']}")
+    elif slides:
+        lines.append("📑 **Slides:**")
+        for i, sl in enumerate(slides, 1):
+            lines.append(f"• {sl['label'] or f'Slides {i}'}: {SITE_BASE_URL}/{sl['file']}")
     return "\n".join(lines)
 
 
